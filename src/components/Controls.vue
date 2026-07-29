@@ -31,18 +31,6 @@
 		<div class="board-actions">
 			<SessionList v-if="isNotifyPushEnabled && presentUsers.length"
 				:sessions="presentUsers" />
-			<!-- Hide but not remove for now as search might change in the future -->
-			<div v-if="false" class="deck-search">
-				<input id="deck-search-input"
-					ref="search"
-					:tabindex="0"
-					type="search"
-					class="icon-search"
-					:value="searchQuery"
-					@focus="$store.dispatch('toggleShortcutLock', true)"
-					@blur="$store.dispatch('toggleShortcutLock', false)"
-					@input="$store.commit('setSearchQuery', $event.target.value)">
-			</div>
 			<div v-if="board && canManage && !showArchived && !board.archived"
 				id="stack-add"
 				v-click-outside="hideAddStack">
@@ -71,6 +59,24 @@
 						value="">
 				</form>
 			</div>
+			<template v-if="showFilter">
+				<!-- type="text", not "search": NcTextField only fills the trailing button's
+					icon slot when type !== 'search', so a search field renders the clear
+					button with no icon at all. "Filter" is also the better semantic here. -->
+				<NcTextField id="deck-search-input"
+					class="board-filter"
+					type="text"
+					:label="filterLabel"
+					:value="searchQuery"
+					:show-trailing-button="searchQuery !== ''"
+					:trailing-button-label="t('deck', 'Clear filter text')"
+					aria-describedby="deck-filter-hint"
+					@update:value="setSearchQuery"
+					@trailing-button-click="clearSearchQuery"
+					@focus="$store.dispatch('toggleShortcutLock', true)"
+					@blur="$store.dispatch('toggleShortcutLock', false)" />
+				<span id="deck-filter-hint" class="hidden-visually">{{ filterHint }}</span>
+			</template>
 			<div v-if="board" class="board-action-buttons">
 				<div class="board-action-buttons__filter">
 					<NcPopover :placement="'bottom-end'"
@@ -279,7 +285,7 @@
 <script>
 import { mapState, mapGetters } from 'vuex'
 import { subscribe, unsubscribe } from '@nextcloud/event-bus'
-import { NcActions, NcActionButton, NcActionSeparator, NcAvatar, NcButton, NcPopover, NcModal } from '@nextcloud/vue'
+import { NcActions, NcActionButton, NcActionSeparator, NcAvatar, NcButton, NcPopover, NcModal, NcTextField } from '@nextcloud/vue'
 import labelStyle from '../mixins/labelStyle.js'
 import ArchiveIcon from 'vue-material-design-icons/ArchiveOutline.vue'
 import ImageIcon from 'vue-material-design-icons/ImageMultipleOutline.vue'
@@ -304,6 +310,7 @@ export default {
 		NcActionButton,
 		NcButton,
 		NcPopover,
+		NcTextField,
 		NcAvatar,
 		ArchiveIcon,
 		ImageIcon,
@@ -361,6 +368,23 @@ export default {
 				name: 'board.details',
 			}
 		},
+		// Controls is shared by the board, the board list and the overviews.
+		// Only the first two have something that consumes the query.
+		isBoardList() {
+			return !this.board && !this.overviewName
+		},
+		showFilter() {
+			return !!this.board || this.isBoardList
+		},
+		filterLabel() {
+			return this.isBoardList ? t('deck', 'Filter boards') : t('deck', 'Filter cards')
+		},
+		filterHint() {
+			// The prefixes are passed as a parameter so translators never see them as translatable text
+			return t('deck', 'Type to filter the current view. Supported prefixes: {prefixes}. Wrap phrases in double quotes.', {
+				prefixes: 'title:, description:, tag:, assigned:, list:, date:',
+			})
+		},
 		isFilterActive() {
 			return this.filter.tags.length !== 0 || this.filter.users.length !== 0 || this.filter.due !== '' || this.filter.completed !== 'both'
 		},
@@ -417,6 +441,12 @@ export default {
 				this.filter.unassigned = false
 			}
 			this.$nextTick(() => this.$store.dispatch('setFilter', { ...this.filter }))
+		},
+		setSearchQuery(value) {
+			this.$store.commit('setSearchQuery', value)
+		},
+		clearSearchQuery() {
+			this.$store.commit('setSearchQuery', '')
 		},
 		toggleNav() {
 			this.$store.dispatch('toggleNav')
@@ -486,9 +516,6 @@ export default {
 		triggerOpenFilters() {
 			this.$refs.filterPopover.$el.click()
 		},
-		triggerOpenSearch() {
-			this.$refs.search.focus()
-		},
 		triggerClearFilter() {
 			this.clearFilter()
 		},
@@ -505,20 +532,31 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+	@import '../css/variables.scss';
+
 	.controls {
 		display: flex;
+		// Wrap so the filter can drop to its own row on narrow screens.
+		// This is why the height below is a min-height and not a height.
+		flex-wrap: wrap;
+		row-gap: var(--default-grid-baseline);
 		margin: calc(var(--default-grid-baseline) * 2);
-		height: var(--default-clickable-area);
+		min-height: var(--default-clickable-area);
 		padding-inline-start: var(--default-clickable-area);
 
 		.board-title {
 			display: flex;
 			align-items: center;
+			// A flex item holding text will not shrink below its content width without this
+			min-width: 0;
 
 			h2 {
 				margin: 0;
 				margin-inline-end: 10px;
 				font-size: 18px;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
 			}
 
 			.board-bullet {
@@ -564,6 +602,9 @@ export default {
 		flex-grow: 1;
 		order: 100;
 		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		row-gap: var(--default-grid-baseline);
 		justify-content: flex-end;
 	}
 
@@ -571,13 +612,19 @@ export default {
 		display: flex;
 	}
 
-	.deck-search {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		input[type=search] {
-			background-position: 5px;
-			padding-inline-start: 24px !important;
+	.board-filter {
+		flex: 0 1 15rem;
+		min-width: 0;
+		margin-inline-end: var(--default-grid-baseline);
+	}
+
+	@media (max-width: $breakpoint-small-mobile) {
+		// order sorts the filter after the buttons, which all default to 0,
+		// so it wraps onto its own row instead of pushing them down
+		.board-filter {
+			flex-basis: 100%;
+			order: 1;
+			margin-inline-end: 0;
 		}
 	}
 

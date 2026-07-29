@@ -70,11 +70,16 @@ export default {
 			// Global shortcuts (not board specific)
 			if ((key.metaKey || key.ctrlKey) && key.code === 'KeyF') {
 				const searchInput = document.getElementById('deck-search-input')
+				// Views without a filter (the overviews) have no input to focus.
+				// Fall through so the browser's find-in-page still works there.
+				if (!searchInput) {
+					return
+				}
 				if (searchInput === document.activeElement) {
 					return false
 				}
 
-				document.getElementById('deck-search-input').focus()
+				searchInput.focus()
 				key.preventDefault()
 				return true
 			}
